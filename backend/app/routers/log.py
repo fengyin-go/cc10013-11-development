@@ -30,6 +30,22 @@ def list_entries(
     return PageResult(items=items, total=total, page=page, size=size)
 
 
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出采集日志清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "log", "total": total, "items": items}
+
+
+@router.get("/{entry_id}/attempts", response_model=dict)
+def get_attempt_sequence(entry_id: int) -> dict:
+    """采集日志读取完整尝试序列：该日志关联端点下每个原始请求的全部尝试。"""
+    sequence = service.get_attempt_sequence(entry_id)
+    if sequence is None:
+        raise HTTPException(status_code=404, detail=f"日志记录 {entry_id} 不存在或已归档")
+    return sequence
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条日志记录明细；不存在时给出可读的错误说明。"""
@@ -56,10 +72,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出采集日志清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "log", "total": total, "items": items}

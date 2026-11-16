@@ -35,20 +35,58 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="String(row.id)">
-          <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
-          <td class="row-actions">
-            <button
-              v-for="action in actions"
-              :key="action"
-              class="link"
-              type="button"
-              @click="runAction(action, row)"
-            >
-              {{ action }}
-            </button>
-          </td>
-        </tr>
+        <template v-for="row in rows" :key="String(row.id)">
+          <tr>
+            <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+            <td class="row-actions">
+              <button
+                v-for="action in actions"
+                :key="action"
+                class="link"
+                type="button"
+                @click="runAction(action, row)"
+              >
+                {{ action }}
+              </button>
+              <button class="link" type="button" @click="toggleAttempts(row)">
+                {{ attemptRowId === row.id ? '收起序列' : '尝试序列' }}
+              </button>
+            </td>
+          </tr>
+          <tr v-if="attemptRowId === row.id" class="detail-row">
+            <td :colspan="columns.length + 1">
+              <div v-if="attemptPanel && attemptPanel.尝试序列.length">
+                <strong>
+                  完整尝试序列（{{ attemptPanel.记录编号 }} · {{ attemptPanel.关联端点 }} ·
+                  {{ attemptPanel.请求数 }} 个原始请求）
+                </strong>
+                <table class="data-table sub-table">
+                  <thead>
+                    <tr>
+                      <th>请求编号</th>
+                      <th>尝试序号</th>
+                      <th>使用端点</th>
+                      <th>间隔秒</th>
+                      <th>结果</th>
+                      <th>记录时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="attempt in attemptPanel.尝试序列" :key="String(attempt.id)">
+                      <td>{{ attempt.请求编号 }}</td>
+                      <td>{{ attempt.尝试序号 }}</td>
+                      <td>{{ attempt.使用端点 }}</td>
+                      <td>{{ attempt.间隔秒 }}</td>
+                      <td>{{ attempt.结果 }}</td>
+                      <td>{{ attempt.记录时间 }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <span v-else>该日志关联端点下没有重试尝试记录</span>
+            </td>
+          </tr>
+        </template>
         <tr v-if="!rows.length">
           <td :colspan="columns.length + 1" class="empty-state">暂无采集日志数据，可先登记日志记录</td>
         </tr>
@@ -80,6 +118,28 @@ const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+const attemptRowId = ref<string | number | null>(null)
+const attemptPanel = ref<Record<string, any> | null>(null)
+
+async function toggleAttempts(row: Row) {
+  errorMessage.value = ''
+  if (attemptRowId.value === row.id) {
+    attemptRowId.value = null
+    attemptPanel.value = null
+    return
+  }
+  try {
+    const response = await request(`${ENDPOINT}/${row.id}/attempts`)
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload) {
+      throw new Error(payload?.detail ?? '尝试序列读取失败')
+    }
+    attemptPanel.value = payload
+    attemptRowId.value = row.id ?? null
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '尝试序列读取失败'
+  }
+}
 
 function resetFilters() {
   filters.value = {}
@@ -99,10 +159,11 @@ async function runAction(action: string, row: Row) {
   try {
     const response = await request(`${ENDPOINT}/${row.id}/actions`, {
       method: 'POST',
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ values: { action } }),
     })
-    if (!response.ok) {
-      throw new Error('采集日志动作未生效，请稍后重试')
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload || payload.ok !== true) {
+      throw new Error(payload?.message ?? payload?.detail ?? '采集日志动作未生效，请稍后重试')
     }
     await reload()
   } catch (error) {

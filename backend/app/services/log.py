@@ -33,6 +33,29 @@ class LogService:
     def get_entry(self, entry_id: int) -> dict[str, Any] | None:
         return store.find(MODULE, entry_id)
 
+    def get_attempt_sequence(self, entry_id: int) -> dict[str, Any] | None:
+        """采集日志读取完整尝试序列：按关联端点串起该端点下每个原始请求的全部尝试。"""
+        entry = store.find(MODULE, entry_id)
+        if entry is None:
+            return None
+        endpoint = str(entry.get("关联端点") or "")
+        dataset = [
+            row for row in store.rows("retry_dataset")
+            if str(row.get("关联端点") or "") == endpoint
+        ]
+        request_codes = {str(row.get("请求编号")) for row in dataset}
+        attempts = [
+            attempt for attempt in store.rows("retry_attempt")
+            if str(attempt.get("请求编号")) in request_codes
+        ]
+        attempts.sort(key=lambda a: (str(a.get("请求编号")), int(a.get("尝试序号", 0))))
+        return {
+            "记录编号": entry.get("记录编号"),
+            "关联端点": endpoint,
+            "请求数": len(dataset),
+            "尝试序列": attempts,
+        }
+
     def create_entry(self, values: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
         missing = [field for field in REQUIRED_FIELDS if not str(values.get(field) or "").strip()]
         if missing:
